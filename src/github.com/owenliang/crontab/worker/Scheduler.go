@@ -28,20 +28,20 @@ func (scheduler *Scheduler) handleJobEvent(jobEvent *common.JobEvent) {
 		err error
 	)
 	switch jobEvent.EventType {
-	case common.JOB_EVENT_SAVE:	// 保存任务事件
-		if jobSchedulePlan, err = common.BuildJobSchedulePlan(jobEvent.Job); err != nil {
-			return
-		}
-		scheduler.jobPlanTable[jobEvent.Job.Name] = jobSchedulePlan
-	case common.JOB_EVENT_DELETE: // 删除任务事件
-		if jobSchedulePlan, jobExisted = scheduler.jobPlanTable[jobEvent.Job.Name]; jobExisted {
-			delete(scheduler.jobPlanTable, jobEvent.Job.Name)
-		}
-	case common.JOB_EVENT_KILL: // 强杀任务事件
-		// 取消掉Command执行, 判断任务是否在执行中
-		if jobExecuteInfo, jobExecuting = scheduler.jobExecutingTable[jobEvent.Job.Name]; jobExecuting {
-			jobExecuteInfo.CancelFunc()	// 触发command杀死shell子进程, 任务得到退出
-		}
+		case common.JOB_EVENT_SAVE:	// 保存任务事件
+			if jobSchedulePlan, err = common.BuildJobSchedulePlan(jobEvent.Job); err != nil {
+				return
+			}
+			scheduler.jobPlanTable[jobEvent.Job.Name] = jobSchedulePlan
+		case common.JOB_EVENT_DELETE: // 删除任务事件
+			if jobSchedulePlan, jobExisted = scheduler.jobPlanTable[jobEvent.Job.Name]; jobExisted {
+				delete(scheduler.jobPlanTable, jobEvent.Job.Name)
+			}
+		case common.JOB_EVENT_KILL: // 强杀任务事件
+			// 取消掉Command执行, 判断任务是否在执行中
+			if jobExecuteInfo, jobExecuting = scheduler.jobExecutingTable[jobEvent.Job.Name]; jobExecuting {
+				jobExecuteInfo.CancelFunc()	// 触发command杀死shell子进程, 任务得到退出
+			}
 	}
 }
 
@@ -73,6 +73,8 @@ func (scheduler *Scheduler) TryStartJob(jobPlan *common.JobSchedulePlan) {
 }
 
 // 重新计算任务调度状态
+//计算出最近要过期的任务  下次要执行的任务 还有多久
+//5秒偶有一个任务要执行
 func (scheduler *Scheduler) TrySchedule() (scheduleAfter time.Duration) {
 	var (
 		jobPlan *common.JobSchedulePlan
@@ -91,17 +93,22 @@ func (scheduler *Scheduler) TrySchedule() (scheduleAfter time.Duration) {
 
 	// 遍历所有任务
 	for _, jobPlan = range scheduler.jobPlanTable {
+		//到期的任务 尝试执行任务
 		if jobPlan.NextTime.Before(now) || jobPlan.NextTime.Equal(now) {
+			//尝试执行任务：有可能任务到期要执行了 但是上一次任务还没有结束,那么这次就不会执行
+			//更新下下次执行时间即可
 			scheduler.TryStartJob(jobPlan)
 			jobPlan.NextTime = jobPlan.Expr.Next(now) // 更新下次执行时间
 		}
 
+		//没有过期的任务
 		// 统计最近一个要过期的任务时间
 		if nearTime == nil || jobPlan.NextTime.Before(*nearTime) {
 			nearTime = &jobPlan.NextTime
 		}
 	}
 	// 下次调度间隔（最近要执行的任务调度时间 - 当前时间）
+	//假如最近一次任务是5秒后执行 那么久睡眠5秒
 	scheduleAfter = (*nearTime).Sub(now)
 	return
 }
@@ -140,12 +147,12 @@ func (scheduler *Scheduler) handleJobResult(result *common.JobExecuteResult) {
 func (scheduler *Scheduler) scheduleLoop() {
 	var (
 		jobEvent *common.JobEvent
-		scheduleAfter time.Duration
+		scheduleAfter time.Duration //下次执行任务时间还有多久
 		scheduleTimer *time.Timer
 		jobResult *common.JobExecuteResult
 	)
 
-	// 初始化一次(1秒)
+	// 初始化一次(1秒) 得到下次调度的时间
 	scheduleAfter = scheduler.TrySchedule()
 
 	// 调度的延迟定时器
@@ -154,14 +161,14 @@ func (scheduler *Scheduler) scheduleLoop() {
 	// 定时任务common.Job
 	for {
 		select {
-		case jobEvent = <- scheduler.jobEventChan:	//监听任务变化事件
-			// 对内存中维护的任务列表做增删改查
-			scheduler.handleJobEvent(jobEvent)
-		case <- scheduleTimer.C:	// 最近的任务到期了
-		case jobResult = <- scheduler.jobResultChan: // 监听任务执行结果
-			scheduler.handleJobResult(jobResult)
+			case jobEvent = <- scheduler.jobEventChan:	//监听任务变化事件
+				// 对内存中维护的任务列表做增删改查 当有事件来了后 就把任务放入内存中
+				scheduler.handleJobEvent(jobEvent)
+			case <- scheduleTimer.C:	// 最近的任务到期了
+			case jobResult = <- scheduler.jobResultChan: // 监听任务执行结果
+				scheduler.handleJobResult(jobResult)
 		}
-		// 调度一次任务
+		// 调度一次任务 最近要过期 要执行的任务
 		scheduleAfter = scheduler.TrySchedule()
 		// 重置调度间隔
 		scheduleTimer.Reset(scheduleAfter)
@@ -169,6 +176,7 @@ func (scheduler *Scheduler) scheduleLoop() {
 }
 
 // 推送任务变化事件
+//投递一个jobEvent 到jobEventChan 管道里面
 func (scheduler *Scheduler) PushJobEvent(jobEvent *common.JobEvent) {
 	scheduler.jobEventChan <- jobEvent
 }
@@ -177,7 +185,7 @@ func (scheduler *Scheduler) PushJobEvent(jobEvent *common.JobEvent) {
 func InitScheduler() (err error) {
 	G_scheduler = &Scheduler{
 		jobEventChan: make(chan *common.JobEvent, 1000),
-		jobPlanTable: make(map[string]*common.JobSchedulePlan),
+		jobPlanTable: make(map[string]*common.JobSchedulePlan),//存放着所有要执行的计划任务
 		jobExecutingTable: make(map[string]*common.JobExecuteInfo),
 		jobResultChan: make(chan *common.JobExecuteResult, 1000),
 	}

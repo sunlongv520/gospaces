@@ -60,22 +60,25 @@ func (jobMgr *JobMgr) watchJobs() (err error) {
 		for watchResp = range watchChan {
 			for _, watchEvent = range watchResp.Events {
 				switch watchEvent.Type {
-				case mvccpb.PUT: // 任务保存事件
-					if job, err = common.UnpackJob(watchEvent.Kv.Value); err != nil {
-						continue
-					}
-					// 构建一个更新Event
-					jobEvent = common.BuildJobEvent(common.JOB_EVENT_SAVE, job)
-				case mvccpb.DELETE: // 任务被删除了
-					// Delete /cron/jobs/job10
-					jobName = common.ExtractJobName(string(watchEvent.Kv.Key))
+					case mvccpb.PUT: // 任务保存事件 新增或者修改
+						//反序列化job 推送一个更新事件给scheduler
+						if job, err = common.UnpackJob(watchEvent.Kv.Value); err != nil {
+							continue
+						}
+						// 构建一个更新Event
+						jobEvent = common.BuildJobEvent(common.JOB_EVENT_SAVE, job)
+					case mvccpb.DELETE: // 任务被删除了
+						//推送一个删除事件给scheduler
+						// Delete /cron/jobs/job10
+						jobName = common.ExtractJobName(string(watchEvent.Kv.Key))
 
-					job = &common.Job{Name: jobName}
+						job = &common.Job{Name: jobName}
 
-					// 构建一个删除Event
-					jobEvent = common.BuildJobEvent(common.JOB_EVENT_DELETE, job)
+						// 构建一个删除Event
+						jobEvent = common.BuildJobEvent(common.JOB_EVENT_DELETE, job)
 				}
 				// 变化推给scheduler
+				//推送到channel里面 管道 jobEventChan<-
 				G_scheduler.PushJobEvent(jobEvent)
 			}
 		}
