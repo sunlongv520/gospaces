@@ -40,7 +40,7 @@ func (executor *Executor) ExecuteJob(info *common.JobExecuteInfo) {
 		result.StartTime = time.Now()
 
 		// 上锁
-		// 随机睡眠(0~1s)
+		// 随机睡眠(0~1s) 为了防止分布式抢锁不均衡
 		time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
 
 		err = jobLock.TryLock()

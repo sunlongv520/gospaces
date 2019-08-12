@@ -65,6 +65,7 @@ func (logSink *LogSink) writeLoop() {
 			}
 		case timeoutBatch = <- logSink.autoCommitChan: // 过期的批次
 			// 判断过期批次是否仍旧是当前的批次
+			//以免重复提交日志
 			if timeoutBatch != logBatch {
 				continue // 跳过已经被提交的批次
 			}

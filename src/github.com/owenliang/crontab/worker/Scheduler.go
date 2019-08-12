@@ -8,7 +8,7 @@ import (
 
 // 任务调度
 type Scheduler struct {
-	jobEventChan chan *common.JobEvent	//  etcd任务事件队列
+	jobEventChan chan *common.JobEvent	//  etcd任务事件队列 把任务放入channel管道
 	jobPlanTable map[string]*common.JobSchedulePlan // 任务调度计划表
 	jobExecutingTable map[string]*common.JobExecuteInfo // 任务执行表
 	jobResultChan chan *common.JobExecuteResult	// 任务结果队列
@@ -74,7 +74,7 @@ func (scheduler *Scheduler) TryStartJob(jobPlan *common.JobSchedulePlan) {
 
 // 重新计算任务调度状态
 //计算出最近要过期的任务  下次要执行的任务 还有多久
-//5秒偶有一个任务要执行
+//5秒后一个任务要执行
 func (scheduler *Scheduler) TrySchedule() (scheduleAfter time.Duration) {
 	var (
 		jobPlan *common.JobSchedulePlan
@@ -161,8 +161,9 @@ func (scheduler *Scheduler) scheduleLoop() {
 	// 定时任务common.Job
 	for {
 		select {
-			case jobEvent = <- scheduler.jobEventChan:	//监听任务变化事件
+			case jobEvent = <- scheduler.jobEventChan:	//监听任务变化事件 新增job或者修改job操作会插入到该管道
 				// 对内存中维护的任务列表做增删改查 当有事件来了后 就把任务放入内存中
+				//当有删除操作 就把该任务从内存中删掉
 				scheduler.handleJobEvent(jobEvent)
 			case <- scheduleTimer.C:	// 最近的任务到期了
 			case jobResult = <- scheduler.jobResultChan: // 监听任务执行结果
@@ -184,10 +185,10 @@ func (scheduler *Scheduler) PushJobEvent(jobEvent *common.JobEvent) {
 // 初始化调度器
 func InitScheduler() (err error) {
 	G_scheduler = &Scheduler{
-		jobEventChan: make(chan *common.JobEvent, 1000),
+		jobEventChan: make(chan *common.JobEvent, 1000),//变化事件
 		jobPlanTable: make(map[string]*common.JobSchedulePlan),//存放着所有要执行的计划任务
-		jobExecutingTable: make(map[string]*common.JobExecuteInfo),
-		jobResultChan: make(chan *common.JobExecuteResult, 1000),
+		jobExecutingTable: make(map[string]*common.JobExecuteInfo),//任务执行状态
+		jobResultChan: make(chan *common.JobExecuteResult, 1000),// 任务执行结果
 	}
 	// 启动调度协程
 	go G_scheduler.scheduleLoop()
