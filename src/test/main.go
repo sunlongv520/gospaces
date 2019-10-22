@@ -1,44 +1,50 @@
 package main
 
 import (
+	_ "github.com/go-sql-driver/mysql"
+	"database/sql"
 	"fmt"
-	"sync"
-	"time"
 )
 
-var rwlock sync.RWMutex
-var x int
-var wg sync.WaitGroup
+var DB *sql.DB
 
-func write() {
-	rwlock.Lock()
-	fmt.Println("write lock")
-	x = x + 1
-	time.Sleep(10 * time.Second)
-	fmt.Println("write unlock")
-	rwlock.Unlock()
-	wg.Done()
-}
-
-func read(i int) {
-	fmt.Println("wait for rlock")
-	rwlock.RLock()
-	fmt.Printf("goroutine:%d x=%d\n", i, x)
-	time.Sleep(time.Second)
-	rwlock.RUnlock()
-	wg.Done()
-}
-
-func main() {
-
-	wg.Add(1)
-	go write()
-	time.Sleep(time.Millisecond * 5)
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go read(i)
+func initDb() error {
+	var err error
+	dsn := "root:root@(localhost:3306)/test2"
+	DB, err = sql.Open("mysql", dsn)
+	if err != nil {
+		return err
 	}
 
-	wg.Wait()
+	DB.SetMaxOpenConns(100)
+	DB.SetMaxIdleConns(16)
+	return nil
+}
 
+type User struct {
+	Id   int64          `db:"id"`
+	Name sql.NullString `db:"string"`
+	Email  string       `db:"email"`
+}
+
+func testQueryData() {
+	sqlstr := "select id, name, email from users where id=?"
+	row := DB.QueryRow(sqlstr, 2)
+	var user User
+	err := row.Scan(&user.Id, &user.Name, &user.Email)
+	if err != nil {
+		fmt.Printf("scan failed, err:%v\n", err)
+		return
+	}
+	fmt.Printf("id:%d name:%v Email:%d\n", user.Id, user.Name, user.Email)
+}
+
+
+func main(){
+	err := initDb()
+	if err != nil {
+		fmt.Printf("init db failed, err:%v\n", err)
+		return
+	}
+	testQueryData()
 }
