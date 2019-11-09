@@ -1,7 +1,7 @@
 package account
 
 import (
-	"github.com/pingguoxueyuan/gostudy/mercury/session"
+	"mercury/session"
 )
 
 func InitSession(provider string, addr string, options ...string) (err error) {

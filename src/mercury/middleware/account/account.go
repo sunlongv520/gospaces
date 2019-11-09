@@ -4,9 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-
 	"github.com/gin-gonic/gin"
-	"github.com/pingguoxueyuan/gostudy/mercury/session"
+	"mercury/session"
 )
 
 func ProcessRequest(ctx *gin.Context) {
